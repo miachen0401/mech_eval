@@ -110,9 +110,12 @@ def feature_f1(pred: dict, gt: dict) -> float:
 
 _EXEC_PREAMBLE = """
 import cadquery as cq
-import OCP.OCP.TopoDS as _td
-if not hasattr(_td.TopoDS_Shape, 'HashCode'):
-    _td.TopoDS_Shape.HashCode = lambda self, upper: self.__hash__() % upper
+try:
+    import OCP.TopoDS as _td
+    if not hasattr(_td.TopoDS_Shape, 'HashCode'):
+        _td.TopoDS_Shape.HashCode = lambda self, upper: self.__hash__() % upper
+except Exception:
+    pass
 show_object = lambda *a, **kw: None  # suppress display calls
 """
 
@@ -320,18 +323,37 @@ def _load_local_model(model_path: str) -> dict:
         return _local_model_cache[model_path]
 
     import torch
-    from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+    from transformers import AutoModelForCausalLM, AutoProcessor
+    import json as _json
 
     print(f"\nLoading local model from: {model_path} ...", flush=True)
     dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
-    model = Qwen2VLForConditionalGeneration.from_pretrained(
-        model_path,
-        torch_dtype=dtype,
-        device_map="auto",
-    )
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # Detect model type from config to pick the right class
+    try:
+        import os as _os
+        _cfg_path = _os.path.join(model_path, "config.json") if _os.path.isdir(model_path) else None
+        if _cfg_path and _os.path.exists(_cfg_path):
+            with open(_cfg_path) as _f:
+                _cfg = _json.load(_f)
+            _model_type = _cfg.get("model_type", "")
+        else:
+            _model_type = ""
+    except Exception:
+        _model_type = ""
+
+    if _model_type == "qwen2_5_vl":
+        from transformers import Qwen2_5_VLForConditionalGeneration
+        _cls = Qwen2_5_VLForConditionalGeneration
+    else:
+        from transformers import Qwen2VLForConditionalGeneration
+        _cls = Qwen2VLForConditionalGeneration
+
+    model = _cls.from_pretrained(model_path, torch_dtype=dtype).to(device)
     model.eval()
     processor = AutoProcessor.from_pretrained(model_path)
-    _local_model_cache[model_path] = {"model": model, "processor": processor}
+    _local_model_cache[model_path] = {"model": model, "processor": processor, "device": device}
     print("Model loaded.", flush=True)
     return _local_model_cache[model_path]
 
@@ -376,8 +398,7 @@ def call_cadrille(
             padding=True,
             return_tensors="pt",
         )
-        if torch.cuda.is_available():
-            inputs = inputs.to("cuda")
+        inputs = inputs.to(state["device"])
 
         gen_kwargs: dict = {"max_new_tokens": max_new_tokens}
         if temperature > 0.0:
