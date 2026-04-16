@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import math
 
 LD = __import__("os").environ.get("LD_LIBRARY_PATH", "/workspace/.local/lib")
 
@@ -88,6 +89,58 @@ def compute_iou(gt_step: str, gen_step: str) -> tuple[float, str | None]:
         return (float(inter / union), None) if union else (0.0, "union empty")
     except Exception as e:
         return 0.0, str(e)[:100]
+
+
+# ── QA scoring ────────────────────────────────────────────────────────────────
+
+def qa_score_single(pred: float, qa: dict) -> float:
+    """Score one QA answer against ground truth.
+
+    All types use ratio accuracy: min(pred, gt) / max(pred, gt)
+    - pred=24, gt=26 → 24/26 = 0.923
+    - pred=26, gt=24 → 24/26 = 0.923  (symmetric)
+    - pred=26, gt=26 → 1.000  (exact)
+    Returns 0.0 if either value is non-positive.
+    """
+    gt   = qa["answer"]
+    pred = float(pred)
+    if gt <= 0 or pred <= 0:
+        return 0.0
+    return round(min(pred, gt) / max(pred, gt), 4)
+
+
+def qa_score(pred_answers: list[float], qa_pairs: list[dict]) -> float:
+    """Mean score across all QA pairs. Returns 0.0 if no pairs."""
+    if not qa_pairs:
+        return 0.0
+    scores = [
+        qa_score_single(pred, qa)
+        for pred, qa in zip(pred_answers, qa_pairs)
+    ]
+    return round(sum(scores) / len(scores), 4)
+
+
+# ── ISO compliance metrics ─────────────────────────────────────────────────────
+
+def iso53_compliance(m_pred: float, z_pred: float,
+                     da_pred: float, df_pred: float, d_pred: float) -> float:
+    """ISO 53 spur gear compliance score [0,1].
+
+    Checks three diameter relationships:
+      tip  diameter da = m*(z+2)
+      root diameter df = m*(z-2.5)
+      pitch diameter d  = m*z
+    """
+    z = round(z_pred)
+    if m_pred <= 0 or z < 5:
+        return 0.0
+    da_gt = m_pred * (z + 2)
+    df_gt = m_pred * (z - 2.5)
+    d_gt  = m_pred * z
+    e1 = abs(da_pred - da_gt) / da_gt
+    e2 = abs(df_pred - df_gt) / max(df_gt, 1e-6)
+    e3 = abs(d_pred  - d_gt)  / d_gt
+    return max(0.0, 1.0 - (e1 + e2 + e3) / 3)
 
 
 def compute_chamfer(gt_step: str, gen_step: str, n_points: int = 2048) -> tuple[float, str | None]:
