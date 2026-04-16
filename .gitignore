@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+test/data/
+test/results/
+*.jsonl
+*.step
+.env

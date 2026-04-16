@@ -11,7 +11,6 @@ _FEATURE_PATTERNS = {
     "has_hole":    re.compile(r"\b(hole|cutThruAll|cboreHole|cskHole)\s*\(", re.I),
     "has_fillet":  re.compile(r"\bfillet\s*\(", re.I),
     "has_chamfer": re.compile(r"\bchamfer\s*\(", re.I),
-    "has_slot":    re.compile(r"\bslot2D\s*\(", re.I),
 }
 
 

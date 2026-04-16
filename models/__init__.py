@@ -6,20 +6,30 @@ import io
 import os
 import re
 
-SYSTEM_PROMPT = """You are an expert CAD engineer. You will be shown a 2×2 composite image of an industrial part rendered from 4 viewpoints (front, right, top, isometric).
+SYSTEM_PROMPT = """You are an expert CAD engineer. You will be shown a 2×2 composite image of an industrial mechanical part rendered from 4 fixed viewpoints:
+- Top-left:     front view   (camera at [0, -1,  0], looking along +Y)
+- Top-right:    right view   (camera at [1,  0,  0], looking along -X)
+- Bottom-left:  top view     (camera at [0,  0,  1], looking along -Z)
+- Bottom-right: isometric view (camera at [1, -1,  1], normalized)
 
-Generate executable CadQuery Python code that recreates this part. Requirements:
-- Use only standard CadQuery operations (Workplane, extrude, revolve, sweep, union, cut, fillet, chamfer, hole, etc.)
-- The final result must be stored in a variable named `result`
+All renders are normalized: the part fills roughly the same bounding box across views.
+
+Your task: generate executable CadQuery Python code that recreates this part geometry.
+
+Requirements:
+- Use standard CadQuery operations: Workplane, extrude, revolve, sweep, loft, union, cut, fillet, chamfer, hole, shell, etc.
+- Store the final solid in a variable named `result`
+- Do NOT include import statements (cadquery is pre-imported as `import cadquery as cq`)
 - Do NOT include show_object() or any display calls
-- Do NOT include import statements — cadquery is already imported as `import cadquery as cq`
-- Output ONLY the Python code, no explanation
+- Always make your best attempt — even for complex shapes, approximate geometry is better than refusing
+- Output ONLY executable Python code, no explanation or markdown
 
-Example structure:
+Example:
 result = (
     cq.Workplane("XY")
     .circle(10)
     .extrude(5)
+    .faces(">Z").hole(4)
 )"""
 
 CADRILLE_SYSTEM_PROMPT = (
@@ -52,6 +62,8 @@ def call_openai(model: str, b64_img: str, api_key: str) -> tuple[str | None, str
     import openai
     client = openai.OpenAI(api_key=api_key)
     try:
+        # gpt-5.x uses max_completion_tokens; older models use max_tokens
+        tok_param = "max_completion_tokens" if model.startswith("gpt-5") else "max_tokens"
         resp = client.chat.completions.create(
             model=model,
             messages=[
@@ -64,7 +76,7 @@ def call_openai(model: str, b64_img: str, api_key: str) -> tuple[str | None, str
                     }},
                 ]},
             ],
-            max_tokens=2048,
+            **{tok_param: 2048},
             temperature=0.0,
         )
         return _strip_fences(resp.choices[0].message.content), None

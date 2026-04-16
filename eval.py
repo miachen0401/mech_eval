@@ -28,6 +28,9 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
 LD = os.environ.get("LD_LIBRARY_PATH", "/workspace/.local/lib")
 
 from bench.dataloader import load_hf, load_done_stems, stratified_sample
